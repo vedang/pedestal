@@ -420,21 +420,25 @@
    :io.pedestal.log/mdc - An object that satisfies the LoggingMDC protocol
                           Defaults to the SLF4J MDC."
   [ctx-map & body]
-  (if (empty? ctx-map)                                      ;; Optimize for the code-gen/dynamic case where the map may be empty
-      `(do
-         ~@body)
-      `(let [old-ctx# *mdc-context*]
+  (if (or (symbol? ctx-map)
+          (seq? ctx-map)
+          (and (map? ctx-map) (seq ctx-map)))
+    ;; ctx-map is a symbol to be resolved at runtime or non-empty
+    `(let [old-ctx# *mdc-context*
+           ctx-map# ~ctx-map]
          ;; Note: /formatter goes into the MDC context but is filtered out when formatting.
          ;; This is to allow formatting in the finally block to use the formatter, if any,
          ;; of the old context.
-         (binding [*mdc-context* (merge old-ctx# ~ctx-map)]
-           (put-formatted-mdc *mdc-context*)
-           (try
-             ~@body
-             (finally
+       (binding [*mdc-context* (merge *mdc-context* ctx-map#)]
+         (put-formatted-mdc *mdc-context*)
+         (try
+           ~@body
+           (finally
                ;; This still seems to be the hard way to do this, as it feels like we should just
                ;; capture the previously written formatted string and revert to that on exit.
-               (put-formatted-mdc old-ctx#)))))))
+             (put-formatted-mdc old-ctx#)))))
+    ;; Optimize for the code-gen/dynamic case where the ctx-map is empty
+    `(do ~@body)))
 
 (defmacro with-context-kv
   "Given a key, value, and body,
